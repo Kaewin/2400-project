@@ -1,0 +1,7 @@
+graph_name,size,states,memory_mb,time_seconds,min_cost,path_length,success,error
+K16_adjacency,16,65536,8.0,6.214013299904764,16.0,17,True,
+K4_adjacency,4,16,0.00048828125,0.0002587999915704131,4.0,5,True,
+K8_adjacency,8,256,0.015625,0.005966600030660629,8.0,9,True,
+Lattice16_adjacency,16,65536,8.0,2.94375679991208,16.0,17,True,
+Lattice4_adjacency,4,16,0.00048828125,0.00021980004385113716,4.0,5,True,
+Lattice8_adjacency,8,256,0.015625,0.005451399949379265,8.0,9,True,
