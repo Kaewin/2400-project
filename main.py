@@ -129,7 +129,7 @@ def run_benchmarks(graph_files, output_csv='benchmark_results.csv', use_optimize
             
             # Validate graph
             if not validate_graph(graph):
-                print(f"  ✗ Invalid graph format")
+                print(f"  [INVALID] Invalid graph format")
                 results.append({
                     'graph_name': graph_name,
                     'size': None,
@@ -150,7 +150,7 @@ def run_benchmarks(graph_files, output_csv='benchmark_results.csv', use_optimize
             
             # Warn for large graphs
             if n > 20:
-                print(f"  ⚠ WARNING: Size {n} may be too large!")
+                print(f"  [WARNING] Size {n} may be too large!")
                 response = input("  Continue? (y/n): ")
                 if response.lower() != 'y':
                     print(f"  Skipped")
@@ -172,17 +172,17 @@ def run_benchmarks(graph_files, output_csv='benchmark_results.csv', use_optimize
             result = benchmark_graph(graph, graph_name, use_optimized)
             
             if result['success']:
-                print(f" ✓")
+                print(f" [OK]")
                 print(f"  Time: {result['time_seconds']:.6f} seconds")
                 print(f"  Cost: {result['min_cost']}")
             else:
-                print(f" ✗")
+                print(f" [FAILED]")
                 print(f"  Error: {result['error']}")
             
             results.append(result)
             
         except FileNotFoundError:
-            print(f"  ✗ File not found")
+            print(f"  [ERROR] File not found")
             results.append({
                 'graph_name': graph_name,
                 'size': None,
@@ -195,7 +195,7 @@ def run_benchmarks(graph_files, output_csv='benchmark_results.csv', use_optimize
                 'error': 'File not found'
             })
         except Exception as e:
-            print(f"  ✗ Error loading: {e}")
+            print(f"  [ERROR] Error loading: {e}")
             results.append({
                 'graph_name': graph_name,
                 'size': None,
@@ -250,10 +250,10 @@ def write_results_to_csv(results, filename='benchmark_results.csv'):
             writer.writeheader()
             writer.writerows(results)
         
-        print(f"\n✓ Results saved to: {filename}")
-        
+        print(f"\n[OK] Results saved to: {filename}")
+
     except Exception as e:
-        print(f"\n✗ Error writing CSV: {e}")
+        print(f"\n[ERROR] Error writing CSV: {e}")
 
 
 def print_summary(results):
@@ -276,7 +276,7 @@ def print_summary(results):
         size = str(result['size']) if result['size'] else 'N/A'
         time_str = f"{result['time_seconds']:.6f}" if result['time_seconds'] else 'N/A'
         cost = str(result['min_cost']) if result['min_cost'] is not None else 'N/A'
-        status = '✓ Success' if result['success'] else '✗ Failed'
+        status = '[OK] Success' if result['success'] else '[FAILED]'
         
         print(f"{graph_name:<20} {size:<8} {time_str:<15} {cost:<12} {status:<10}")
     
@@ -304,11 +304,11 @@ def main():
     Main entry point for the benchmark script.
     """
     # Configuration
-    GRAPH_DIRECTORY = '.'  # Current directory
-    GRAPH_PATTERN = '*.npy'  # Pattern to match graph files (change to 'graph_*.npy' for specific pattern)
+    GRAPH_DIRECTORY = 'graph_structures_output'  # Directory containing graph files
+    GRAPH_PATTERN = '*_adjacency.npy'  # Pattern to match graph files
     OUTPUT_CSV = 'benchmark_results.csv'
     USE_OPTIMIZED = True  # Use optimized version
-    
+
     # You can override these with command-line arguments
     if len(sys.argv) > 1:
         GRAPH_DIRECTORY = sys.argv[1]
@@ -325,8 +325,8 @@ def main():
     
     # Run benchmarks
     results = run_benchmarks(graph_files, OUTPUT_CSV, USE_OPTIMIZED)
-    
-    print(f"\n✓ Benchmark complete!")
+
+    print(f"\n[OK] Benchmark complete!")
     print(f"  Results saved to: {OUTPUT_CSV}")
 
 
