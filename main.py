@@ -12,65 +12,90 @@ import os
 import sys
 from pathlib import Path
 from held_karp import held_karp, held_karp_with_path, held_karp_optimized, load_graph, validate_graph
+from brute_force import brute_force, brute_force_optimized
 
 
-def benchmark_graph(graph, graph_name="unknown", use_optimized=True):
+def benchmark_graph(graph, graph_name="unknown", use_optimized=True, run_brute_force=True):
     """
-    Benchmark the Held-Karp algorithm on a single graph.
-    
+    Benchmark both Held-Karp and Brute Force algorithms on a single graph.
+
     Args:
         graph: Adjacency matrix (numpy array)
         graph_name: Name identifier for the graph
-        use_optimized: Whether to use the optimized version
-    
+        use_optimized: Whether to use the optimized versions
+        run_brute_force: Whether to run brute force (disabled for large graphs)
+
     Returns:
         dict: Benchmark results containing:
             - graph_name: Name of the graph
             - size: Number of nodes
             - states: Number of DP states (2^n)
             - memory_mb: Estimated memory usage in MB
-            - time_seconds: Execution time in seconds
-            - min_cost: Minimum Hamiltonian cycle cost
+            - hk_time_seconds: Held-Karp execution time
+            - hk_min_cost: Held-Karp minimum cost
+            - bf_time_seconds: Brute force execution time (if run)
+            - bf_min_cost: Brute force minimum cost (if run)
+            - costs_match: Whether both algorithms found same cost
+            - speedup: How much faster Held-Karp is vs Brute Force
             - path_length: Length of the path (if found)
             - success: Whether the algorithm completed successfully
             - error: Error message if failed
     """
     n = len(graph)
-    
+
     result = {
         'graph_name': graph_name,
         'size': n,
         'states': 2**n,
         'memory_mb': (2**n * n * 8) / (1024**2),
-        'time_seconds': None,
-        'min_cost': None,
+        'hk_time_seconds': None,
+        'hk_min_cost': None,
+        'bf_time_seconds': None,
+        'bf_min_cost': None,
+        'costs_match': None,
+        'speedup': None,
         'path_length': None,
         'success': False,
         'error': None
     }
-    
+
     try:
-        # Choose algorithm version
-        algorithm = held_karp_optimized if use_optimized else held_karp
-        
-        # Benchmark execution time
+        # Run Held-Karp algorithm
+        hk_algorithm = held_karp_optimized if use_optimized else held_karp
+
         start_time = time.perf_counter()
-        min_cost = algorithm(graph)
+        hk_min_cost = hk_algorithm(graph)
         end_time = time.perf_counter()
-        
-        execution_time = end_time - start_time
-        
-        # Record results
-        result['time_seconds'] = execution_time
-        result['min_cost'] = min_cost if min_cost != float('inf') else None
-        result['path_length'] = n + 1 if min_cost != float('inf') else None
+        hk_time = end_time - start_time
+
+        result['hk_time_seconds'] = hk_time
+        result['hk_min_cost'] = hk_min_cost if hk_min_cost != float('inf') else None
+
+        # Run Brute Force algorithm (only for small graphs)
+        if run_brute_force and n <= 10:  # Brute force gets very slow after n=10
+            bf_algorithm = brute_force_optimized if use_optimized else brute_force
+
+            start_time = time.perf_counter()
+            bf_min_cost = bf_algorithm(graph)
+            end_time = time.perf_counter()
+            bf_time = end_time - start_time
+
+            result['bf_time_seconds'] = bf_time
+            result['bf_min_cost'] = bf_min_cost if bf_min_cost != float('inf') else None
+
+            # Compare results
+            if result['hk_min_cost'] is not None and result['bf_min_cost'] is not None:
+                result['costs_match'] = (result['hk_min_cost'] == result['bf_min_cost'])
+                result['speedup'] = bf_time / hk_time if hk_time > 0 else None
+
+        result['path_length'] = n + 1 if hk_min_cost != float('inf') else None
         result['success'] = True
-        
+
     except MemoryError:
         result['error'] = 'MemoryError: Insufficient memory'
     except Exception as e:
         result['error'] = f'Error: {str(e)}'
-    
+
     return result
 
 
@@ -173,8 +198,12 @@ def run_benchmarks(graph_files, output_csv='benchmark_results.csv', use_optimize
             
             if result['success']:
                 print(f" [OK]")
-                print(f"  Time: {result['time_seconds']:.6f} seconds")
-                print(f"  Cost: {result['min_cost']}")
+                print(f"  Held-Karp: {result['hk_time_seconds']:.6f}s, Cost: {result['hk_min_cost']}")
+                if result['bf_time_seconds'] is not None:
+                    print(f"  Brute Force: {result['bf_time_seconds']:.6f}s, Cost: {result['bf_min_cost']}")
+                    print(f"  Match: {result['costs_match']}, Speedup: {result['speedup']:.2f}x")
+                else:
+                    print(f"  Brute Force: Skipped (graph too large)")
             else:
                 print(f" [FAILED]")
                 print(f"  Error: {result['error']}")
@@ -222,7 +251,7 @@ def run_benchmarks(graph_files, output_csv='benchmark_results.csv', use_optimize
 def write_results_to_csv(results, filename='benchmark_results.csv'):
     """
     Write benchmark results to a CSV file.
-    
+
     Args:
         results: List of benchmark result dictionaries
         filename: Output CSV filename
@@ -230,15 +259,19 @@ def write_results_to_csv(results, filename='benchmark_results.csv'):
     if not results:
         print("\nNo results to write.")
         return
-    
+
     # Define CSV columns
     fieldnames = [
         'graph_name',
         'size',
         'states',
         'memory_mb',
-        'time_seconds',
-        'min_cost',
+        'hk_time_seconds',
+        'hk_min_cost',
+        'bf_time_seconds',
+        'bf_min_cost',
+        'costs_match',
+        'speedup',
         'path_length',
         'success',
         'error'
@@ -259,44 +292,57 @@ def write_results_to_csv(results, filename='benchmark_results.csv'):
 def print_summary(results):
     """
     Print a summary of benchmark results.
-    
+
     Args:
         results: List of benchmark result dictionaries
     """
-    print("\n" + "="*70)
+    print("\n" + "="*90)
     print("BENCHMARK SUMMARY")
-    print("="*70)
-    
+    print("="*90)
+
     # Summary table
-    print(f"\n{'Graph':<20} {'Size':<8} {'Time (s)':<15} {'Cost':<12} {'Status':<10}")
-    print("-"*70)
-    
+    print(f"\n{'Graph':<20} {'Size':<6} {'HK Time':<12} {'BF Time':<12} {'Speedup':<10} {'Match':<8} {'Status':<10}")
+    print("-"*90)
+
     for result in results:
         graph_name = result['graph_name'][:19]  # Truncate long names
         size = str(result['size']) if result['size'] else 'N/A'
-        time_str = f"{result['time_seconds']:.6f}" if result['time_seconds'] else 'N/A'
-        cost = str(result['min_cost']) if result['min_cost'] is not None else 'N/A'
-        status = '[OK] Success' if result['success'] else '[FAILED]'
-        
-        print(f"{graph_name:<20} {size:<8} {time_str:<15} {cost:<12} {status:<10}")
-    
+        hk_time = f"{result['hk_time_seconds']:.6f}s" if result['hk_time_seconds'] else 'N/A'
+        bf_time = f"{result['bf_time_seconds']:.6f}s" if result['bf_time_seconds'] else 'Skipped'
+        speedup = f"{result['speedup']:.2f}x" if result['speedup'] else 'N/A'
+        match = str(result['costs_match']) if result['costs_match'] is not None else 'N/A'
+        status = '[OK]' if result['success'] else '[FAIL]'
+
+        print(f"{graph_name:<20} {size:<6} {hk_time:<12} {bf_time:<12} {speedup:<10} {match:<8} {status:<10}")
+
     # Statistics
     successful = [r for r in results if r['success']]
     failed = [r for r in results if not r['success']]
-    
-    print("\n" + "-"*70)
+    with_brute_force = [r for r in successful if r['bf_time_seconds'] is not None]
+
+    print("\n" + "-"*90)
     print(f"Total graphs: {len(results)}")
     print(f"Successful: {len(successful)}")
     print(f"Failed: {len(failed)}")
-    
+
     if successful:
-        times = [r['time_seconds'] for r in successful]
-        print(f"\nExecution times:")
-        print(f"  Fastest: {min(times):.6f} seconds")
-        print(f"  Slowest: {max(times):.6f} seconds")
-        print(f"  Average: {sum(times)/len(times):.6f} seconds")
-    
-    print("="*70)
+        hk_times = [r['hk_time_seconds'] for r in successful if r['hk_time_seconds']]
+        print(f"\nHeld-Karp execution times:")
+        print(f"  Fastest: {min(hk_times):.6f} seconds")
+        print(f"  Slowest: {max(hk_times):.6f} seconds")
+        print(f"  Average: {sum(hk_times)/len(hk_times):.6f} seconds")
+
+    if with_brute_force:
+        bf_times = [r['bf_time_seconds'] for r in with_brute_force]
+        speedups = [r['speedup'] for r in with_brute_force if r['speedup']]
+        all_match = all(r['costs_match'] for r in with_brute_force if r['costs_match'] is not None)
+
+        print(f"\nBrute Force comparison ({len(with_brute_force)} graphs):")
+        print(f"  All costs match: {all_match}")
+        print(f"  Average speedup: {sum(speedups)/len(speedups):.2f}x")
+        print(f"  Max speedup: {max(speedups):.2f}x")
+
+    print("="*90)
 
 
 def main():
