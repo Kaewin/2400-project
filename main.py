@@ -13,11 +13,12 @@ import sys
 from pathlib import Path
 from held_karp import held_karp, held_karp_with_path, held_karp_optimized, load_graph, validate_graph
 from brute_force import brute_force, brute_force_optimized
+from monte_carlo import monte_carlo
 
 
 def benchmark_graph(graph, graph_name="unknown", use_optimized=True, run_brute_force=True):
     """
-    Benchmark both Held-Karp and Brute Force algorithms on a single graph.
+    Benchmark Held-Karp, Monte Carlo, and (optionally) Brute Force algorithms on a single graph.
 
     Args:
         graph: Adjacency matrix (numpy array)
@@ -31,12 +32,20 @@ def benchmark_graph(graph, graph_name="unknown", use_optimized=True, run_brute_f
             - size: Number of nodes
             - states: Number of DP states (2^n)
             - memory_mb: Estimated memory usage in MB
+
             - hk_time_seconds: Held-Karp execution time
             - hk_min_cost: Held-Karp minimum cost
+
             - bf_time_seconds: Brute force execution time (if run)
             - bf_min_cost: Brute force minimum cost (if run)
-            - costs_match: Whether both algorithms found same cost
+            - costs_match: Whether both exact algorithms found same cost
             - speedup: How much faster Held-Karp is vs Brute Force
+
+            - mc_time_seconds: Monte Carlo execution time
+            - mc_min_cost: Monte Carlo minimum cost found
+            - mc_iterations: Number of Monte Carlo iterations
+            - mc_gap_vs_opt: Relative gap (mc - hk) / hk if both available
+
             - path_length: Length of the path (if found)
             - success: Whether the algorithm completed successfully
             - error: Error message if failed
@@ -48,12 +57,21 @@ def benchmark_graph(graph, graph_name="unknown", use_optimized=True, run_brute_f
         'size': n,
         'states': 2**n,
         'memory_mb': (2**n * n * 8) / (1024**2),
+
+        # exact algorithms
         'hk_time_seconds': None,
         'hk_min_cost': None,
         'bf_time_seconds': None,
         'bf_min_cost': None,
         'costs_match': None,
         'speedup': None,
+
+        # Monte Carlo heuristic
+        'mc_time_seconds': None,
+        'mc_min_cost': None,
+        'mc_iterations': None,
+        'mc_gap_vs_opt': None,
+
         'path_length': None,
         'success': False,
         'error': None
@@ -70,6 +88,30 @@ def benchmark_graph(graph, graph_name="unknown", use_optimized=True, run_brute_f
 
         result['hk_time_seconds'] = hk_time
         result['hk_min_cost'] = hk_min_cost if hk_min_cost != float('inf') else None
+
+        # --- Monte Carlo heuristic benchmark ---
+        if n <= 10:
+            mc_iterations = 20_000
+        elif n <= 15:
+            mc_iterations = 10_000
+        elif n <= 20:
+            mc_iterations = 5_000
+        else:
+            mc_iterations = 2_000
+
+        start_time = time.perf_counter()
+        mc_min_cost = monte_carlo(graph, iterations=mc_iterations)
+        end_time = time.perf_counter()
+        mc_time = end_time - start_time
+
+        result['mc_time_seconds'] = mc_time
+        result['mc_min_cost'] = mc_min_cost if mc_min_cost != float('inf') else None
+        result['mc_iterations'] = mc_iterations
+
+        if result['hk_min_cost'] is not None and result['mc_min_cost'] is not None:
+            result['mc_gap_vs_opt'] = (
+                (result['mc_min_cost'] - result['hk_min_cost']) / result['hk_min_cost']
+            )
 
         # Run Brute Force algorithm (only for small graphs)
         if run_brute_force and n <= 10:  # Brute force gets very slow after n=10
@@ -160,8 +202,16 @@ def run_benchmarks(graph_files, output_csv='benchmark_results.csv', use_optimize
                     'size': None,
                     'states': None,
                     'memory_mb': None,
-                    'time_seconds': None,
-                    'min_cost': None,
+                    'hk_time_seconds': None,
+                    'hk_min_cost': None,
+                    'bf_time_seconds': None,
+                    'bf_min_cost': None,
+                    'costs_match': None,
+                    'speedup': None,
+                    'mc_time_seconds': None,
+                    'mc_min_cost': None,
+                    'mc_iterations': None,
+                    'mc_gap_vs_opt': None,
                     'path_length': None,
                     'success': False,
                     'error': 'Invalid graph format'
@@ -184,8 +234,16 @@ def run_benchmarks(graph_files, output_csv='benchmark_results.csv', use_optimize
                         'size': n,
                         'states': 2**n,
                         'memory_mb': (2**n * n * 8) / (1024**2),
-                        'time_seconds': None,
-                        'min_cost': None,
+                        'hk_time_seconds': None,
+                        'hk_min_cost': None,
+                        'bf_time_seconds': None,
+                        'bf_min_cost': None,
+                        'costs_match': None,
+                        'speedup': None,
+                        'mc_time_seconds': None,
+                        'mc_min_cost': None,
+                        'mc_iterations': None,
+                        'mc_gap_vs_opt': None,
                         'path_length': None,
                         'success': False,
                         'error': 'Skipped by user'
@@ -199,6 +257,19 @@ def run_benchmarks(graph_files, output_csv='benchmark_results.csv', use_optimize
             if result['success']:
                 print(f" [OK]")
                 print(f"  Held-Karp: {result['hk_time_seconds']:.6f}s, Cost: {result['hk_min_cost']}")
+
+                if result.get('mc_time_seconds') is not None:
+                    if result.get('mc_gap_vs_opt') is not None:
+                        gap_pct = result['mc_gap_vs_opt'] * 100
+                        gap_str = f"{gap_pct:.2f}%"
+                    else:
+                        gap_str = "N/A"
+                    print(
+                        f"  Monte Carlo: {result['mc_time_seconds']:.6f}s, "
+                        f"Cost: {result['mc_min_cost']}, "
+                        f"Iters: {result['mc_iterations']}, Gap vs HK: {gap_str}"
+                    )
+
                 if result['bf_time_seconds'] is not None:
                     print(f"  Brute Force: {result['bf_time_seconds']:.6f}s, Cost: {result['bf_min_cost']}")
                     print(f"  Match: {result['costs_match']}, Speedup: {result['speedup']:.2f}x")
@@ -217,8 +288,16 @@ def run_benchmarks(graph_files, output_csv='benchmark_results.csv', use_optimize
                 'size': None,
                 'states': None,
                 'memory_mb': None,
-                'time_seconds': None,
-                'min_cost': None,
+                'hk_time_seconds': None,
+                'hk_min_cost': None,
+                'bf_time_seconds': None,
+                'bf_min_cost': None,
+                'costs_match': None,
+                'speedup': None,
+                'mc_time_seconds': None,
+                'mc_min_cost': None,
+                'mc_iterations': None,
+                'mc_gap_vs_opt': None,
                 'path_length': None,
                 'success': False,
                 'error': 'File not found'
@@ -230,8 +309,16 @@ def run_benchmarks(graph_files, output_csv='benchmark_results.csv', use_optimize
                 'size': None,
                 'states': None,
                 'memory_mb': None,
-                'time_seconds': None,
-                'min_cost': None,
+                'hk_time_seconds': None,
+                'hk_min_cost': None,
+                'bf_time_seconds': None,
+                'bf_min_cost': None,
+                'costs_match': None,
+                'speedup': None,
+                'mc_time_seconds': None,
+                'mc_min_cost': None,
+                'mc_iterations': None,
+                'mc_gap_vs_opt': None,
                 'path_length': None,
                 'success': False,
                 'error': str(e)
@@ -272,6 +359,10 @@ def write_results_to_csv(results, filename='benchmark_results.csv'):
         'bf_min_cost',
         'costs_match',
         'speedup',
+        'mc_time_seconds',
+        'mc_min_cost',
+        'mc_iterations',
+        'mc_gap_vs_opt',
         'path_length',
         'success',
         'error'
@@ -296,31 +387,55 @@ def print_summary(results):
     Args:
         results: List of benchmark result dictionaries
     """
-    print("\n" + "="*90)
+    print("\n" + "="*110)
     print("BENCHMARK SUMMARY")
-    print("="*90)
+    print("="*110)
 
     # Summary table
-    print(f"\n{'Graph':<20} {'Size':<6} {'HK Time':<12} {'BF Time':<12} {'Speedup':<10} {'Match':<8} {'Status':<10}")
-    print("-"*90)
+    print(
+        f"\n{'Graph':<20} {'Size':<6} "
+        f"{'HK Time':<12} {'BF Time':<12} "
+        f"{'MC Time':<12} {'MC Gap%':<10} "
+        f"{'Speedup':<10} {'Match':<8} {'Status':<10}"
+    )
+    print("-"*110)
 
     for result in results:
         graph_name = result['graph_name'][:19]  # Truncate long names
         size = str(result['size']) if result['size'] else 'N/A'
-        hk_time = f"{result['hk_time_seconds']:.6f}s" if result['hk_time_seconds'] else 'N/A'
-        bf_time = f"{result['bf_time_seconds']:.6f}s" if result['bf_time_seconds'] else 'Skipped'
-        speedup = f"{result['speedup']:.2f}x" if result['speedup'] else 'N/A'
-        match = str(result['costs_match']) if result['costs_match'] is not None else 'N/A'
+        hk_time = f"{result['hk_time_seconds']:.6f}s" if result.get('hk_time_seconds') else 'N/A'
+        bf_time = (
+            f"{result['bf_time_seconds']:.6f}s"
+            if result.get('bf_time_seconds') is not None
+            else 'Skipped'
+        )
+        mc_time = (
+            f"{result['mc_time_seconds']:.6f}s"
+            if result.get('mc_time_seconds') is not None
+            else 'N/A'
+        )
+        if result.get('mc_gap_vs_opt') is not None:
+            mc_gap_pct = f"{result['mc_gap_vs_opt'] * 100:.2f}%"
+        else:
+            mc_gap_pct = 'N/A'
+
+        speedup = f"{result['speedup']:.2f}x" if result.get('speedup') else 'N/A'
+        match = str(result['costs_match']) if result.get('costs_match') is not None else 'N/A'
         status = '[OK]' if result['success'] else '[FAIL]'
 
-        print(f"{graph_name:<20} {size:<6} {hk_time:<12} {bf_time:<12} {speedup:<10} {match:<8} {status:<10}")
+        print(
+            f"{graph_name:<20} {size:<6} "
+            f"{hk_time:<12} {bf_time:<12} "
+            f"{mc_time:<12} {mc_gap_pct:<10} "
+            f"{speedup:<10} {match:<8} {status:<10}"
+        )
 
     # Statistics
     successful = [r for r in results if r['success']]
     failed = [r for r in results if not r['success']]
     with_brute_force = [r for r in successful if r['bf_time_seconds'] is not None]
 
-    print("\n" + "-"*90)
+    print("\n" + "-"*110)
     print(f"Total graphs: {len(results)}")
     print(f"Successful: {len(successful)}")
     print(f"Failed: {len(failed)}")
@@ -342,7 +457,7 @@ def print_summary(results):
         print(f"  Average speedup: {sum(speedups)/len(speedups):.2f}x")
         print(f"  Max speedup: {max(speedups):.2f}x")
 
-    print("="*90)
+    print("="*110)
 
 
 def main():
